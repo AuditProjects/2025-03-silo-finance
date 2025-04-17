@@ -73,6 +73,7 @@ contract BaseTest is SiloLittleHelper, Test {
         vault = createSiloVault(OWNER, TIMELOCK, address(loanToken), "SiloVault Vault", "MMV");
 
         IdleVaultsFactory factory = new IdleVaultsFactory();
+        // vault -> idle value
         idleMarket = factory.createIdleVault(vault);
         vm.label(address(idleMarket), "idleMarket");
 
@@ -100,6 +101,7 @@ contract BaseTest is SiloLittleHelper, Test {
         _override.configName = SiloConfigsNames.SILO_LOCAL_GAUGE_HOOK_RECEIVER;
 
         for (uint256 i; i < NB_MARKETS; i++) {
+            // 这里 silo0_ , silo1_ 是 silo-core::Silo.sol
             (, ISilo silo0_, ISilo silo1_, , , address hook) = siloFixture.deploy_local(_override);
             vm.label(address(silo0_), string.concat("Market#", Strings.toString(i)));
 

@@ -12,7 +12,7 @@ import {ErrorsLib} from "../libraries/ErrorsLib.sol";
 import {ISiloVault} from "silo-vaults/contracts/interfaces/ISiloVault.sol";
 
 /// @title Vault Incentives Module
-contract VaultIncentivesModule is IVaultIncentivesModule, Ownable2StepUpgradeable {
+contract VaultIncentivesModule is IVaultIncentivesModule, Ownable2StepUpgradeable { // @q-a 可升级合约 - 只是OwnableUpgradeable
     using EnumerableSet for EnumerableSet.AddressSet;
 
     ISiloVault public vault;
@@ -161,7 +161,7 @@ contract VaultIncentivesModule is IVaultIncentivesModule, Ownable2StepUpgradeabl
     /// @param _marketsInput The markets to get the incentives claiming logics for.
     /// @return logics The incentives claiming logics.
     function _getAllIncentivesClaimingLogics(
-        address[] memory _marketsInput
+        address[] memory _marketsInput // @q-a DoS?传入是否有限制 - view函数中调用
     ) internal view virtual returns (address[] memory logics) {
         uint256 totalLogics;
 

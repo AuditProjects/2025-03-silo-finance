@@ -84,7 +84,7 @@ contract SiloDeployer is ISiloDeployer {
             SILO_FACTORY.maxFlashloanFee(),
             SILO_FACTORY.maxLiquidationFee()
         );
-
+        // -> silo: SiloDeployer.SILO_IMPL
         configData0.silo = CloneDeterministic.predictSilo0Addr(
             SILO_IMPL,
             creatorSiloCounter,

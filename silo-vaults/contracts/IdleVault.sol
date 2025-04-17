@@ -6,8 +6,11 @@ import {IERC4626, IERC20} from "openzeppelin5/interfaces/IERC4626.sol";
 
 import {ErrorsLib} from "./libraries/ErrorsLib.sol";
 
+// 空闲市场 vault
+// 放入只能 onlyDepositor , 其他人只能拿出
 contract IdleVault is ERC4626 {
     /// @dev this is the only user that is allowed to deposit
+    // 唯一允许存款的用户
     address public immutable ONLY_DEPOSITOR;
 
     /// @dev Initializes the contract.
@@ -28,6 +31,7 @@ contract IdleVault is ERC4626 {
 
     /// @inheritdoc IERC4626
     function maxDeposit(address _depositor) public view virtual override returns (uint256) {
+        // @q-a _depositor 地址? - silovault
         return _depositor != ONLY_DEPOSITOR ? 0 : super.maxDeposit(_depositor);
     }
 

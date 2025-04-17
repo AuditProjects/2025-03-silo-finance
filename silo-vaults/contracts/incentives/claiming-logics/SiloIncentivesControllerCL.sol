@@ -20,6 +20,7 @@ contract SiloIncentivesControllerCL is IIncentivesClaimingLogic {
         SILO_INCENTIVES_CONTROLLER = ISiloIncentivesController(_siloIncentivesController);
     }
 
+    // delegatecall by silovault
     function claimRewardsAndDistribute() external virtual {
         IDistributionManager.AccruedRewards[] memory accruedRewards = SILO_INCENTIVES_CONTROLLER.claimRewards(
             address(VAULT_INCENTIVES_CONTROLLER)

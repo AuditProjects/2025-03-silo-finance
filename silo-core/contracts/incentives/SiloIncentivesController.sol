@@ -27,6 +27,7 @@ contract SiloIncentivesController is BaseIncentivesController {
     constructor(address _owner, address _notifier) BaseIncentivesController(_owner, _notifier) {}
 
     /// @inheritdoc ISiloIncentivesController
+    // @f
     function afterTokenTransfer(
         address _sender,
         uint256 _senderBalance,
@@ -90,9 +91,10 @@ contract SiloIncentivesController is BaseIncentivesController {
     }
 
     /// @inheritdoc ISiloIncentivesController
+    // delegatecall -> silo vault call this
     function immediateDistribution(address _tokenToDistribute, uint104 _amount) external virtual onlyNotifier {
         if (_amount == 0) return;
-
+        // @q- 之前MEV问题修改了? - notime
         uint256 totalStaked = _shareToken().totalSupply();
 
         bytes32 programId = _getOrCreateImmediateDistributionProgram(_tokenToDistribute);

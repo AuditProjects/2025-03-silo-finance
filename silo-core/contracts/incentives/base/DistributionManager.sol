@@ -180,9 +180,9 @@ contract DistributionManager is IDistributionManager, Ownable2Step {
     ) internal virtual returns (uint256) {
         uint256 userIndex = incentivesPrograms[incentivesProgramId].users[user];
         uint256 accruedRewards = 0;
-
+        // @q 如何绕开 newIndex == userIndex
         uint256 newIndex = _updateAssetStateInternal(incentivesProgramId, totalStaked);
-
+        // 计算reward = (newIndex - userIndex) * x / y
         if (userIndex != newIndex) {
             if (stakedByUser != 0) {
                 accruedRewards = _getRewards(stakedByUser, newIndex, userIndex);
@@ -217,7 +217,7 @@ contract DistributionManager is IDistributionManager, Ownable2Step {
     ) internal virtual returns (AccruedRewards[] memory accruedRewards) {
         uint256 length = _programIds.length;
         accruedRewards = new AccruedRewards[](length);
-
+        // 会去查余额(shares)
         (uint256 userStaked, uint256 totalStaked) = _getScaledUserBalanceAndSupply(_user);
 
         for (uint256 i = 0; i < length; i++) {

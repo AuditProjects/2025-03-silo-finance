@@ -124,6 +124,7 @@ abstract contract BaseIncentivesController is DistributionManager, ISiloIncentiv
     }
 
     /// @inheritdoc ISiloIncentivesController
+    // @f-a 用户调用可以进行claim
     function claimRewards(address _to) external virtual returns (AccruedRewards[] memory accruedRewards) {
         if (_to == address(0)) revert InvalidToAddress();
 
@@ -158,6 +159,7 @@ abstract contract BaseIncentivesController is DistributionManager, ISiloIncentiv
         inputsValidation(_user, _to)
         returns (AccruedRewards[] memory accruedRewards)
     {
+        // name -> ID
         bytes32[] memory programIds = _getProgramsIds(_programNames);
 
         _requireExistingPrograms(programIds);
@@ -231,7 +233,7 @@ abstract contract BaseIncentivesController is DistributionManager, ISiloIncentiv
     ) internal virtual {
         for (uint256 i = 0; i < accruedRewards.length; i++) {
             uint256 unclaimedRewards = _usersUnclaimedRewards[user][accruedRewards[i].programId];
-
+            // 当前的 + 未领取的
             uint256 amountToClaim = accruedRewards[i].amount + unclaimedRewards;
 
             if (amountToClaim != 0) {

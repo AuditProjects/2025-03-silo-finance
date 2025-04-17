@@ -100,7 +100,7 @@ contract SiloFixture is StdCheats, CommonBase {
         SiloConfigOverride memory overrideArgs;
         return _deploy(new SiloDeploy_Local(overrideArgs), _configName);
     }
-
+    // ->
     function deploy_local(
         SiloConfigOverride memory _override
     )
@@ -109,7 +109,7 @@ contract SiloFixture is StdCheats, CommonBase {
     {
         return
             _deploy(
-                new SiloDeploy_Local(_override),
+                new SiloDeploy_Local(_override), // -> SiloDeploy.s.sol
                 bytes(_override.configName).length == 0
                     ? SiloConfigsNames.SILO_LOCAL_NO_ORACLE_SILO
                     : _override.configName
@@ -134,7 +134,8 @@ contract SiloFixture is StdCheats, CommonBase {
 
         siloConfig = _siloDeploy.useConfig(_configName).run();
         console2.log("[SiloFixture] _deploy: _siloDeploy(", _configName, ").run() done.");
-
+        // siloConfig.silo0
+        // siloConfig.silo1
         (address createdSilo0, address createdSilo1) = siloConfig.getSilos();
 
         ISiloConfig.ConfigData memory siloConfig0 = siloConfig.getConfig(createdSilo0);

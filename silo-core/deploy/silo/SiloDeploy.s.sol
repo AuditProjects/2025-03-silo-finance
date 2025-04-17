@@ -45,6 +45,7 @@ contract SiloDeploy is CommonDeploy {
         return this;
     }
 
+    // SiloDeploy -> SiloConfig
     function run() public virtual returns (ISiloConfig siloConfig) {
         console2.log("[SiloCommonDeploy] run()");
 

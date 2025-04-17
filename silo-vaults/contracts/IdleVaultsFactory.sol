@@ -17,8 +17,9 @@ contract IdleVaultsFactory {
     mapping(address => bool) public isIdleVault;
 
     function createIdleVault(IERC4626 _vault) external virtual returns (IdleVault idleVault) {
+        // 创建一个 ERC4626 Vault
         idleVault = new IdleVault(
-            address(_vault),
+            address(_vault), //  onlyDepositor 是一个 vault
             _vault.asset(),
             string.concat("IdleVault for ", IERC20Metadata(address(_vault)).name()),
             string.concat("IV-", IERC20Metadata(address(_vault)).symbol())

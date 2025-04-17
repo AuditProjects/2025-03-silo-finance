@@ -41,6 +41,7 @@ contract SiloVaultsFactory is ISiloVaultsFactory {
         string memory name,
         string memory symbol
     ) external virtual returns (ISiloVault siloVault) {
+        // @q-a salt 会哈希碰撞吗 - no
         bytes32 salt = keccak256(
             abi.encodePacked(counter[msg.sender]++, msg.sender, initialOwner, initialTimelock, asset, name, symbol)
         );
@@ -48,7 +49,8 @@ contract SiloVaultsFactory is ISiloVaultsFactory {
         VaultIncentivesModule vaultIncentivesModule = VaultIncentivesModule(
             Clones.cloneDeterministic(VAULT_INCENTIVES_MODULE_IMPLEMENTATION, salt)
         );
-
+        // 创建一个个 siloVault
+        // @q-a 会生成地址相同的实例吗 - no
         siloVault = ISiloVault(
             address(new SiloVault(initialOwner, initialTimelock, vaultIncentivesModule, asset, name, symbol))
         );

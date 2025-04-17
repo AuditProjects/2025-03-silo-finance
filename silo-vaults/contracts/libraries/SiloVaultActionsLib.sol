@@ -16,7 +16,7 @@ library SiloVaultActionsLib {
     function setIsAllocator(
         address _newAllocator,
         bool _newIsAllocator,
-        mapping(address => bool) storage _isAllocator
+        mapping(address => bool) storage _isAllocator // lib传参storage
     ) external {
         if (_isAllocator[_newAllocator] == _newIsAllocator) revert ErrorsLib.AlreadySet();
 
@@ -28,13 +28,14 @@ library SiloVaultActionsLib {
     /// @dev Sets the cap of the market.
     function setCap(
         IERC4626 _market,
-        uint184 _supplyCap,
+        uint184 _supplyCap, // 注资上限
         address _asset,
         mapping(IERC4626 => MarketConfig) storage _config,
         mapping(IERC4626 => PendingUint192) storage _pendingCap,
-        IERC4626[] storage _withdrawQueue
+        IERC4626[] storage _withdrawQueue // 提款market顺序队列
     ) external returns (bool updateTotalAssets) {
         MarketConfig storage marketConfig = _config[_market];
+        // 当 _supplyCap = 0 时, forceApprove 0 意义何在
         uint256 approveValue;
 
         if (_supplyCap > 0) {

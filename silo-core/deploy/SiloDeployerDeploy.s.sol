@@ -96,11 +96,11 @@ contract SiloDeployerDeploy is CommonDeploy {
         );
 
         vm.startBroadcast(deployerPrivateKey);
-
+        // @! -> silo-core/contracts/Silo.sol
         address siloImpl = address(new Silo(siloFactory));
         address shareProtectedCollateralTokenImpl = address(new ShareProtectedCollateralToken());
         address shareDebtTokenImpl = address(new ShareDebtToken());
-
+        // 实例化 siloDeployer 的地方
         siloDeployer = ISiloDeployer(
             address(
                 new SiloDeployer(

@@ -62,7 +62,8 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     mapping(IERC4626 => MarketConfig) public config;
 
     /// @inheritdoc ISiloVaultBase
-    uint256 public timelock;
+    // 时间锁只显示设置关键参数,而不是用户存提款
+    uint256 public timelock; // 将时间添加到对应 pending 结构上
 
     /// @inheritdoc ISiloVaultStaticTyping
     PendingAddress public pendingGuardian;
@@ -71,7 +72,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     mapping(IERC4626 => PendingUint192) public pendingCap;
 
     /// @inheritdoc ISiloVaultStaticTyping
-    PendingUint192 public pendingTimelock;
+    PendingUint192 public pendingTimelock; // 设置timelock时的 pending
 
     /// @dev Internal balance tracker to prevent assets loss if underlying market hacked
     /// and started reporting wrong supply.
@@ -87,6 +88,8 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     address public feeRecipient;
 
     /// @inheritdoc ISiloVaultBase
+    // 优先注资/提资的 vault 列表
+    // @q 如果 supplyQueue, withdrawQueue 由管理者添加恶意非标准ERC4626,则无法正常withdraw?
     IERC4626[] public supplyQueue;
 
     /// @inheritdoc ISiloVaultBase
@@ -185,6 +188,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     /// @inheritdoc ISiloVaultBase
+    // 可设置为true or false
     function setIsAllocator(address _newAllocator, bool _newIsAllocator) external virtual onlyOwner {
         SiloVaultActionsLib.setIsAllocator(_newAllocator, _newIsAllocator, isAllocator);
     }
@@ -234,6 +238,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     /// @inheritdoc ISiloVaultBase
+    // 预提交
     function submitGuardian(address _newGuardian) external virtual onlyOwner {
         if (_newGuardian == guardian) revert ErrorsLib.AlreadySet();
         if (pendingGuardian.validAt != 0) revert ErrorsLib.AlreadyPending();
@@ -250,16 +255,17 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     /* ONLY CURATOR FUNCTIONS */
 
     /// @inheritdoc ISiloVaultBase
-    function submitCap(IERC4626 _market, uint256 _newSupplyCap) external virtual onlyCuratorRole {
+    // 设置 ERC4626 市场供给上限
+    function submitCap(IERC4626 _market, uint256 _newSupplyCap) external virtual onlyCuratorRole { // 策略管理人 执行
         if (_market.asset() != asset()) revert ErrorsLib.InconsistentAsset(_market);
-        if (pendingCap[_market].validAt != 0) revert ErrorsLib.AlreadyPending();
+        if (pendingCap[_market].validAt != 0) revert ErrorsLib.AlreadyPending(); // 时间锁条件
         if (config[_market].removableAt != 0) revert ErrorsLib.PendingRemoval();
         uint256 supplyCap = config[_market].cap;
         if (_newSupplyCap == supplyCap) revert ErrorsLib.AlreadySet();
 
-        if (_newSupplyCap < supplyCap) {
+        if (_newSupplyCap < supplyCap) { // 降低 cap
             _setCap(_market, SafeCast.toUint184(_newSupplyCap));
-        } else {
+        } else {  // 提高 cap, 写入 pendingCap 映射，等待 validAt 到期才可生效
             pendingCap[_market].update(SafeCast.toUint184(_newSupplyCap), timelock);
 
             emit EventsLib.SubmitCap(_msgSender(), _market, _newSupplyCap);
@@ -267,14 +273,15 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     /// @inheritdoc ISiloVaultBase
-    function submitMarketRemoval(IERC4626 _market) external virtual onlyCuratorRole {
+    // 申请移除某个 ERC4626 市场
+    function submitMarketRemoval(IERC4626 _market) external virtual onlyCuratorRole { // 策略管理人 执行
         if (config[_market].removableAt != 0) revert ErrorsLib.AlreadyPending();
         if (config[_market].cap != 0) revert ErrorsLib.NonZeroCap();
         if (!config[_market].enabled) revert ErrorsLib.MarketNotEnabled(_market);
         if (pendingCap[_market].validAt != 0) revert ErrorsLib.PendingCap(_market);
 
         // Safe "unchecked" cast because timelock <= MAX_TIMELOCK.
-        config[_market].removableAt = uint64(block.timestamp + timelock);
+        config[_market].removableAt = uint64(block.timestamp + timelock); // 延迟生效
 
         emit EventsLib.SubmitMarketRemoval(_msgSender(), _market);
     }
@@ -284,14 +291,15 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     /// @inheritdoc ISiloVaultBase
     function setSupplyQueue(IERC4626[] calldata _newSupplyQueue) external virtual onlyAllocatorRole {
         _nonReentrantOn();
-
+        // 无检查机制,无条件信任调用者
         uint256 length = _newSupplyQueue.length;
 
         if (length > ConstantsLib.MAX_QUEUE_LENGTH) revert ErrorsLib.MaxQueueLengthExceeded();
 
-        for (uint256 i; i < length; ++i) {
+        for (uint256 i; i < length; ++i) { // 逐个检查
             IERC4626 market = _newSupplyQueue[i];
             if (config[market].cap == 0) revert ErrorsLib.UnauthorizedMarket(market);
+            // @q 其他检查项
         }
 
         supplyQueue = _newSupplyQueue;
@@ -302,6 +310,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     /// @inheritdoc ISiloVaultBase
+    // 更新子市场提款优先顺序
     function updateWithdrawQueue(uint256[] calldata _indexes) external virtual onlyAllocatorRole {
         _nonReentrantOn();
 
@@ -322,6 +331,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
             newWithdrawQueue[i] = market;
         }
 
+        // 处理被排除的市场是否符合「可被安全移除」条件
         for (uint256 i; i < currLength; ++i) {
             if (!seen[i]) {
                 IERC4626 market = withdrawQueue[i];
@@ -349,7 +359,11 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     /// @inheritdoc ISiloVaultBase
-    function reallocate(MarketAllocation[] calldata _allocations) external virtual onlyAllocatorRole {
+    // 核心函数: 在多个 ERC4626 vault(market)之间进行流动性的重新分配
+    // 将资产从一些 market 中提取，再将这些资产注入到其他 market，以达到资金再平衡目的
+    // 传入要操作的 market 以及要保留的最终资产
+    // 由PublicAllocator调用
+    function reallocate(MarketAllocation[] calldata _allocations) external virtual onlyAllocatorRole { // 由 allocator 策略合约调用
         _nonReentrantOn();
 
         uint256 totalSupplied;
@@ -361,10 +375,13 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
             _updateInternalBalanceForMarket(allocation.market);
 
             // in original SiloVault, we are not checking liquidity, so this reallocation will fail if not enough assets
+
+            // vault合约在market上的asstes和shares
             (uint256 supplyAssets, uint256 supplyShares) = _supplyBalance(allocation.market);
+            // 需要取出的资产 = 总资产 - 更新为的资产
             uint256 withdrawn = UtilsLib.zeroFloorSub(supplyAssets, allocation.assets);
 
-            if (withdrawn > 0) {
+            if (withdrawn > 0) { // 需要撤资
                 if (!config[allocation.market].enabled) revert ErrorsLib.MarketNotEnabled(allocation.market);
 
                 // Guarantees that unknown frontrunning donations can be withdrawn, in order to disable a market.
@@ -377,10 +394,14 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
                 uint256 withdrawnAssets;
                 uint256 withdrawnShares;
 
+                // 从 market 中撤出资金
                 if (shares != 0) {
+                    // 取出 X 资产
+                    // 该vault合约在market中持有的资产
                     withdrawnAssets = allocation.market.redeem(shares, address(this), address(this));
                     withdrawnShares = shares;
                 } else {
+                    // 赎回 Y 份额对应的资产
                     withdrawnAssets = withdrawn;
                     withdrawnShares = allocation.market.withdraw(withdrawn, address(this), address(this));
                 }
@@ -389,6 +410,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
                 // For example, if a user has deposited 100wei and withdrawn 99wei (because of rounding),
                 // we will still have 1wei in balanceTracker[market]. But, this dust can be covered
                 // by accrued interest over time.
+                // 更新该合约自己的余额追踪信息
                 balanceTracker[allocation.market] = UtilsLib.zeroFloorSub(
                     balanceTracker[allocation.market],
                     withdrawnAssets
@@ -397,7 +419,8 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
                 emit EventsLib.ReallocateWithdraw(_msgSender(), allocation.market, withdrawnAssets, withdrawnShares);
 
                 totalWithdrawn += withdrawnAssets;
-            } else {
+            } else { // 否则, 补充资产,进行注资
+                // 如果是 MAX,则表示将所有取出的资金注入该 market
                 uint256 suppliedAssets = allocation.assets == type(uint256).max
                     ? UtilsLib.zeroFloorSub(totalWithdrawn, totalSupplied)
                     : UtilsLib.zeroFloorSub(allocation.assets, supplyAssets);
@@ -416,6 +439,8 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
                 balanceTracker[allocation.market] = newBalance;
 
                 // The market's loan asset is guaranteed to be the vault's asset because it has a non-zero supply cap.
+                // 真正进行注资
+                // @q 这里能否欺骗valut,使其注资?
                 uint256 suppliedShares = allocation.market.deposit(suppliedAssets, address(this));
 
                 emit EventsLib.ReallocateSupply(_msgSender(), allocation.market, suppliedAssets, suppliedShares);
@@ -424,6 +449,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
             }
         }
 
+        // 确保最终资产数量平衡
         if (totalWithdrawn != totalSupplied) revert ErrorsLib.InconsistentReallocation();
 
         _nonReentrantOff();
@@ -432,6 +458,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     /* REVOKE FUNCTIONS */
 
     /// @inheritdoc ISiloVaultBase
+    // 撤销尚未生效的 timelock 修改提案(治理)
     function revokePendingTimelock() external virtual onlyGuardianRole {
         delete pendingTimelock;
 
@@ -477,11 +504,13 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     /// @inheritdoc ISiloVaultBase
+    // 正式执行
     function acceptGuardian() external virtual afterTimelock(pendingGuardian.validAt) {
         _setGuardian(pendingGuardian.value);
     }
 
     /// @inheritdoc ISiloVaultBase
+    // 正式应用此前由 curator 提交的 cap 变更提案
     function acceptCap(IERC4626 _market) external virtual afterTimelock(pendingCap[_market].validAt) {
         _nonReentrantOn();
 
@@ -492,7 +521,9 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     /// @inheritdoc ISiloVaultBase
-    function claimRewards() public virtual {
+    // @f
+    function claimRewards() public virtual { // @q 各类重入或执行意外逻辑?
+        // 使用 transient 自己实现重入锁
         _nonReentrantOn();
 
         _updateLastTotalAssets(_accrueFee());
@@ -515,21 +546,24 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
 
     /// @inheritdoc IERC4626
     /// @dev Warning: May be higher than the actual max deposit due to duplicate markets in the supplyQueue.
+    //  最多还能注入资产
     function maxDeposit(address) public view virtual override returns (uint256) {
         return _maxDeposit();
     }
 
     /// @inheritdoc IERC4626
     /// @dev Warning: May be higher than the actual max mint due to duplicate markets in the supplyQueue.
+    //  最多还能 mint 份额
     function maxMint(address) public view virtual override returns (uint256) {
         uint256 suppliable = _maxDeposit();
-
+        // 做转换
         return _convertToShares(suppliable, Math.Rounding.Floor);
     }
 
     /// @inheritdoc IERC4626
     /// @dev Warning: May be lower than the actual amount of assets that can be withdrawn by `owner` due to conversion
     /// roundings between shares and assets.
+    // 最多能提取的资产数量
     function maxWithdraw(address _owner) public view virtual override returns (uint256 assets) {
         (assets, , ) = _maxWithdraw(_owner);
     }
@@ -537,16 +571,21 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     /// @inheritdoc IERC4626
     /// @dev Warning: May be lower than the actual amount of shares that can be redeemed by `owner` due to conversion
     /// roundings between shares and assets.
+    // 最多能赎回的份额
     function maxRedeem(address _owner) public view virtual override returns (uint256) {
         (uint256 assets, uint256 newTotalSupply, uint256 newTotalAssets) = _maxWithdraw(_owner);
-
+        // 资产 -> shares
         return _convertToSharesWithTotals(assets, newTotalSupply, newTotalAssets, Math.Rounding.Floor);
     }
 
     /// @inheritdoc IERC20
+    // @q-a 由谁调用? - 用户或合约, 将自己的shares转给其他人
+    // @audit- 随意转移股份, 造成其他副作用 - 奖励计算 | withdrawQueue | HookReceiver
+    // - 如转移路径: userA -> vault -> userB
     function transfer(address _to, uint256 _value) public virtual override(ERC20, IERC20) returns (bool success) {
+        // @q-a QA 能否将_nonReentrant优化为 modifier - 在 reallocate、rebalance 逻辑里间断式启用,这样更灵活
         _nonReentrantOn();
-
+        // 转移股份, 由合约转给 _to 地址
         success = ERC20.transfer(_to, _value);
 
         _nonReentrantOff();
@@ -566,6 +605,8 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     /// @inheritdoc IERC4626
+    // @entry
+    // 用户: assets -> shares
     function deposit(uint256 _assets, address _receiver) public virtual override returns (uint256 shares) {
         _nonReentrantOn();
 
@@ -583,6 +624,8 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     /// @inheritdoc IERC4626
+    // @entry
+    // 投入asset铸造出_shares, 可指定 _receiver
     function mint(uint256 _shares, address _receiver) public virtual override returns (uint256 assets) {
         _nonReentrantOn();
 
@@ -592,6 +635,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
         // It is updated again in `_deposit`.
         lastTotalAssets = newTotalAssets;
 
+        // 计算为了获得 _shares，需要存入多少资产
         assets = _convertToAssetsWithTotalsSafe(_shares, totalSupply(), newTotalAssets, Math.Rounding.Ceil);
 
         _deposit(_msgSender(), _receiver, assets, _shares);
@@ -600,6 +644,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     /// @inheritdoc IERC4626
+    // @entry
     function withdraw(
         uint256 _assets,
         address _receiver,
@@ -622,6 +667,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     /// @inheritdoc IERC4626
+    // @entry
     function redeem(
         uint256 _shares,
         address _receiver,
@@ -660,27 +706,32 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
 
     /// @dev Returns the maximum amount of asset (`assets`) that the `owner` can withdraw from the vault, as well as the
     /// new vault's total supply (`newTotalSupply`) and total assets (`newTotalAssets`).
+    // 最多能提取的资产数量
     function _maxWithdraw(
         address _owner
     ) internal view virtual returns (uint256 assets, uint256 newTotalSupply, uint256 newTotalAssets) {
         uint256 feeShares;
         (feeShares, newTotalAssets) = _accruedFeeShares();
+        // shares
         newTotalSupply = totalSupply() + feeShares;
-
+        // 当前总资产
         assets = _convertToAssetsWithTotals(balanceOf(_owner), newTotalSupply, newTotalAssets, Math.Rounding.Floor);
+        // 模拟从各 vault 提取资金时的实际损耗
         assets -= SiloVaultActionsLib.simulateWithdrawERC4626(assets, withdrawQueue);
     }
 
     /// @dev Returns the maximum amount of assets that the vault can supply to ERC4626 vaults.
+    // 最多还能注入多少资产
     function _maxDeposit() internal view virtual returns (uint256 totalSuppliable) {
         for (uint256 i; i < supplyQueue.length; ++i) {
             IERC4626 market = supplyQueue[i];
 
             uint256 supplyCap = config[market].cap;
             if (supplyCap == 0) continue;
-
+            // 当前资产
             (uint256 assets, ) = _supplyBalance(market);
             uint256 depositMax = market.maxDeposit(address(this));
+            // 可注入量
             uint256 suppliable = Math.min(depositMax, UtilsLib.zeroFloorSub(supplyCap, assets));
 
             if (suppliable == 0) continue;
@@ -688,14 +739,16 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
             uint256 internalBalance = balanceTracker[market];
 
             // We reached a cap of the market by internal balance, so we can't supply more
+            // 若达到 cap,则不允许注资
             if (internalBalance >= supplyCap) continue;
 
             uint256 internalSuppliable;
             // safe to uncheck because internalBalance < supplyCap
             unchecked {
+                // 注资额度
                 internalSuppliable = supplyCap - internalBalance;
             }
-
+            // 累加
             totalSuppliable += Math.min(suppliable, internalSuppliable);
         }
     }
@@ -730,6 +783,8 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
         uint256 _newTotalAssets,
         Math.Rounding _rounding
     ) internal view virtual returns (uint256) {
+        // _assets * (_newTotalSupply + 10 ** decimals) / _newTotalAssets + 1
+        // _newTotalAssets + 1 避免除 0
         return _assets.mulDiv(_newTotalSupply + 10 ** _decimalsOffset(), _newTotalAssets + 1, _rounding);
     }
 
@@ -774,9 +829,9 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     /// @dev Used in mint or deposit to deposit the underlying asset to ERC4626 vaults.
     function _deposit(address _caller, address _receiver, uint256 _assets, uint256 _shares) internal virtual override {
         if (_shares == 0) revert ErrorsLib.InputZeroShares();
-
+        // @q ERC4626会不会重入?称可支持任何 ERC-4626 金库
         super._deposit(_caller, _receiver, _assets, _shares);
-
+        // 将资产分派到各个 market 当中
         _supplyERC4626(_assets);
 
         // `lastTotalAssets + assets` may be a little off from `totalAssets()`.
@@ -806,7 +861,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     /// @dev Updates the internal balance for the market.
     function _updateInternalBalanceForMarket(IERC4626 _market) internal virtual returns (uint256 marketBalance) {
         marketBalance = _expectedSupplyAssets(_market, address(this));
-
+        // 更新 marketBalance
         if (marketBalance != 0 && marketBalance > balanceTracker[_market]) {
             // We do not take into account assets lose in the market allocation but we allow it on the deposit
             // because of that `newAllocation` can be less than `currentAllocation` up to allowed assets loss.
@@ -865,6 +920,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     /* LIQUIDITY ALLOCATION */
 
     /// @dev Supplies `assets` to ERC4626 vaults.
+    // 资产按顺序注入多个 ERC4626 子 vault 中
     function _supplyERC4626(uint256 _assets) internal virtual {
         for (uint256 i; i < supplyQueue.length; ++i) {
             IERC4626 market = supplyQueue[i];
@@ -874,8 +930,10 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
 
             // Update internal balance for market to include interest if any.
             // `supplyAssets` needs to be rounded up for `toSupply` to be rounded down.
+            // 更新 balanceTracker，包含最新利息
             uint256 supplyAssets = _updateInternalBalanceForMarket(market);
-
+            // toSupply = min(supplyCap - supplyAssets, _assets);
+            // 如果一个market当中
             uint256 toSupply = UtilsLib.min(UtilsLib.zeroFloorSub(supplyCap, supplyAssets), _assets);
 
             if (toSupply != 0) {
@@ -890,7 +948,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
                     } catch {}
                 }
             }
-
+            // 如果资产全部分派完,提取返回
             if (_assets == 0) return;
         }
 
@@ -899,6 +957,7 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
 
     /// @dev Withdraws `assets` from ERC4626 vaults.
     function _withdrawERC4626(uint256 _assets) internal virtual {
+        // 从各个erc4626 market中 withdraw
         for (uint256 i; i < withdrawQueue.length; ++i) {
             IERC4626 market = withdrawQueue[i];
 
@@ -952,13 +1011,15 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     /// (`newTotalAssets`).
     function _accruedFeeShares() internal view virtual returns (uint256 feeShares, uint256 newTotalAssets) {
         newTotalAssets = totalAssets();
-
+        // 总利息 = 当前总资产 - 上次结算资产
         uint256 totalInterest = UtilsLib.zeroFloorSub(newTotalAssets, lastTotalAssets);
         if (totalInterest != 0 && fee != 0) {
             // It is acknowledged that `feeAssets` may be rounded down to 0 if `totalInterest * fee < WAD`.
+            // 高精度计算, fee assets
             uint256 feeAssets = totalInterest.mulDiv(fee, WAD);
             // The fee assets is subtracted from the total assets in this calculation to compensate for the fact
             // that total assets is already increased by the total interest (including the fee assets).
+            // assets 换算成 fee shares
             feeShares = _convertToSharesWithTotals(
                 feeAssets,
                 totalSupply(),
@@ -1011,11 +1072,12 @@ contract SiloVault is ERC4626, ERC20Permit, Ownable2Step, Multicall, ISiloVaultS
     }
 
     function _claimRewards() internal virtual {
+        // 获取所有IncentivesClaimingLogics的奖励
         address[] memory logics = INCENTIVES_MODULE.getAllIncentivesClaimingLogics();
         bytes memory data = abi.encodeWithSelector(IIncentivesClaimingLogic.claimRewardsAndDistribute.selector);
-
+        // @f-a for loop + lowlevel call - logic limit
         for (uint256 i; i < logics.length; i++) {
-            (bool success, ) = logics[i].delegatecall(data);
+            (bool success, ) = logics[i].delegatecall(data); // delegatecall claimRewardsAndDistribute
             if (!success) revert ErrorsLib.ClaimRewardsFailed();
         }
     }
